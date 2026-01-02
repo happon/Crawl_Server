@@ -1,0 +1,45 @@
+geopolitical_collector/
+├── config/
+│   └── sources.json                  # 情報源設定（メディア名、URL、ドメイン、カテゴリ）
+│
+├── data/
+│   └── raw_articles/                # 収集記事の保存先（JSONファイル）
+│
+├── logs/
+│   └── scraper.log                  # ログ出力先（任意）
+│
+├── parsers/                         # パーサーパッケージ
+│   ├── __init__.py                  # ドメインと抽出関数のマップ定義（dispatch）
+│   ├── base_parser.py               # ParsedArticleクラス定義（to_dict付き）
+│   ├── tag_filters.py               # HTMLノイズ除去用CSSセレクタ定義
+│   │
+│   ├── html_common_parsers.py       # HTMLパーサー向けの共通処理（タグ除去、soup化）
+│   ├── rss_common_parsers.py        # RSS構造から本文・リンクなど共通抽出処理（必要なら）
+│   ├── api_common_parsers.py        # APIレスポンスから共通フィールド抽出処理
+│   │
+│   ├── html_parsers/
+│   │   ├── __init__.py              # 空でOK
+│   │   ├── newsweek.py              # NewsweekのHTML構造に特化した抽出器
+│   │   └── thehackernews.py         # The Hacker News の抽出器
+│   │
+│   ├── api_parsers/
+│   │   ├── __init__.py              # 空でOK
+│   │   └── mandiant.py              # Mandiant API形式に特化した抽出器
+│   │
+│   └── rss_parsers/                 # （必要に応じて）
+│       ├── __init__.py              # 空でOK
+│       └── somefeed.py              # 特殊なRSS用のカスタム抽出（例：CDATA対応など）
+│
+├── scripts/
+│   ├── __init__.py                  # 空でOK（-m 実行用）
+│   ├── main.py                      # エントリポイント（引数処理とrun_collection呼び出し）
+│   ├── controller.py                # sources.json をループして source_handler に渡す
+│   ├── source_handler.py            # API / RSS / HTML 各形式に応じた処理分岐と制御
+│   ├── rss_collector.py             # RSS feedparser を用いた記事エントリ取得
+│   ├── html_scraper.py              # Selenium + undetected-chromedriver によるHTML取得
+│   └── fetch_utils.py               # JSON保存、日付判定、API取得のユーティリティ
+│
+├── requirements.txt                 # pip install 用依存パッケージ一覧
+├── README.md                        # 説明書（任意）
+├── .env                             # APIキー、Seleniumオプションなどの環境変数（任意）
+└── structure.css                      # CSSセレクタ定義ファイル（HTMLノイズ除去用）
