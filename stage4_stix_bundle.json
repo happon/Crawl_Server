@@ -1,0 +1,121 @@
+{
+  "type": "bundle",
+  "id": "bundle--7e8e7f56-215a-43a7-9f4d-9319c2411666",
+  "objects": [
+    {
+      "type": "identity",
+      "spec_version": "2.1",
+      "id": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "created": "2026-01-04T03:35:13Z",
+      "modified": "2026-01-04T03:35:13Z",
+      "name": "Geopolitical Collector",
+      "identity_class": "organization"
+    },
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--6edbf3a7-52b7-468e-80a2-135105478d31",
+      "created": "2026-01-04T03:35:13Z",
+      "modified": "2026-01-04T03:35:13Z",
+      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "name": "New GlassWorm malware wave targets Macs with trojanized crypto wallets",
+      "description": "New wave of GlassWorm malware specifically targeting Mac users with trojanized crypto wallets.",
+      "pattern_type": "stix",
+      "pattern": "[url:value = 'https://www.bleepingcomputer.com/news/security/new-glassworm-malware-wave-targets-macs-with-trojanized-crypto-wallets/']",
+      "valid_from": "2026-01-01T15:18:23Z",
+      "labels": [
+        "url",
+        "Cyber_Threat",
+        "GlassWorm",
+        "malware",
+        "Macs",
+        "trojanized",
+        "crypto wallets"
+      ]
+    },
+    {
+      "type": "report",
+      "spec_version": "2.1",
+      "id": "report--27872d2d-3147-4edd-a317-441cf8f90d35",
+      "created": "2026-01-04T03:35:13Z",
+      "modified": "2026-01-04T03:35:13Z",
+      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "name": "GlassWorm malware targets Macs with trojanized crypto wallets",
+      "description": "A new variant of the GlassWorm malware has been discovered, focusing on infecting Mac computers and stealing cryptocurrency by trojanizing crypto wallets. Mac users are advised to be cautious and ensure their systems are protected against this threat.",
+      "published": "2026-01-01T15:18:23Z",
+      "report_types": [
+        "threat-report"
+      ],
+      "labels": [
+        "Cyber_Threat",
+        "GlassWorm",
+        "malware",
+        "Macs",
+        "trojanized",
+        "crypto wallets"
+      ],
+      "external_references": [
+        {
+          "source_name": "BleepingComputer",
+          "url": "https://www.bleepingcomputer.com/news/security/new-glassworm-malware-wave-targets-macs-with-trojanized-crypto-wallets/"
+        }
+      ],
+      "object_refs": [
+        "indicator--6edbf3a7-52b7-468e-80a2-135105478d31"
+      ]
+    },
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--97506270-acb1-41b6-80f8-42b639ad52b0",
+      "created": "2026-01-04T03:35:13Z",
+      "modified": "2026-01-04T03:35:13Z",
+      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "name": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
+      "description": "NYC mayoral inauguration security measures ban Flipper Zero and Raspberry Pi devices.",
+      "pattern_type": "stix",
+      "pattern": "[url:value = 'https://www.bleepingcomputer.com/news/security/nyc-mayoral-inauguration-bans-flipper-zero-raspberry-pi-devices/']",
+      "valid_from": "2025-12-31T22:52:44Z",
+      "labels": [
+        "url",
+        "Cyber_Threat",
+        "NYC",
+        "mayoral inauguration",
+        "Flipper Zero",
+        "Raspberry Pi",
+        "security"
+      ]
+    },
+    {
+      "type": "report",
+      "spec_version": "2.1",
+      "id": "report--9f3504d8-def2-4586-920c-b3810fd55a44",
+      "created": "2026-01-04T03:35:13Z",
+      "modified": "2026-01-04T03:35:13Z",
+      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "name": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
+      "description": "The upcoming NYC mayoral inauguration has implemented security measures that include banning Flipper Zero and Raspberry Pi devices. These devices are known for their hacking capabilities and could pose a threat to the event's security. The decision to prohibit these devices aims to prevent any potential cyber threats or disruptions during the ceremony.",
+      "published": "2025-12-31T22:52:44Z",
+      "report_types": [
+        "threat-report"
+      ],
+      "labels": [
+        "Cyber_Threat",
+        "NYC",
+        "mayoral inauguration",
+        "Flipper Zero",
+        "Raspberry Pi",
+        "security"
+      ],
+      "external_references": [
+        {
+          "source_name": "BleepingComputer",
+          "url": "https://www.bleepingcomputer.com/news/security/nyc-mayoral-inauguration-bans-flipper-zero-raspberry-pi-devices/"
+        }
+      ],
+      "object_refs": [
+        "indicator--97506270-acb1-41b6-80f8-42b639ad52b0"
+      ]
+    }
+  ]
+}
