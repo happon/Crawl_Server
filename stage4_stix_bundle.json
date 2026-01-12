@@ -1,23 +1,23 @@
 {
   "type": "bundle",
-  "id": "bundle--7e8e7f56-215a-43a7-9f4d-9319c2411666",
+  "id": "bundle--f3565638-7d89-4113-b847-78214668a807",
   "objects": [
     {
       "type": "identity",
       "spec_version": "2.1",
-      "id": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
-      "created": "2026-01-04T03:35:13Z",
-      "modified": "2026-01-04T03:35:13Z",
+      "id": "identity--b7a30cf2-772f-4d44-b70e-a2160959f919",
+      "created": "2026-01-12T12:05:39Z",
+      "modified": "2026-01-12T12:05:39Z",
       "name": "Geopolitical Collector",
       "identity_class": "organization"
     },
     {
       "type": "indicator",
       "spec_version": "2.1",
-      "id": "indicator--6edbf3a7-52b7-468e-80a2-135105478d31",
-      "created": "2026-01-04T03:35:13Z",
-      "modified": "2026-01-04T03:35:13Z",
-      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "id": "indicator--c16aae00-ebe8-4bfc-a867-86f9a2aa3dc6",
+      "created": "2026-01-12T12:05:39Z",
+      "modified": "2026-01-12T12:05:39Z",
+      "created_by_ref": "identity--b7a30cf2-772f-4d44-b70e-a2160959f919",
       "name": "New GlassWorm malware wave targets Macs with trojanized crypto wallets",
       "description": "New wave of GlassWorm malware specifically targeting Mac users with trojanized crypto wallets.",
       "pattern_type": "stix",
@@ -36,10 +36,10 @@
     {
       "type": "report",
       "spec_version": "2.1",
-      "id": "report--27872d2d-3147-4edd-a317-441cf8f90d35",
-      "created": "2026-01-04T03:35:13Z",
-      "modified": "2026-01-04T03:35:13Z",
-      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "id": "report--105f50c2-16c4-4436-b4c1-1f4efcb40e22",
+      "created": "2026-01-12T12:05:39Z",
+      "modified": "2026-01-12T12:05:39Z",
+      "created_by_ref": "identity--b7a30cf2-772f-4d44-b70e-a2160959f919",
       "name": "GlassWorm malware targets Macs with trojanized crypto wallets",
       "description": "A new variant of the GlassWorm malware has been discovered, focusing on infecting Mac computers and stealing cryptocurrency by trojanizing crypto wallets. Mac users are advised to be cautious and ensure their systems are protected against this threat.",
       "published": "2026-01-01T15:18:23Z",
@@ -61,16 +61,16 @@
         }
       ],
       "object_refs": [
-        "indicator--6edbf3a7-52b7-468e-80a2-135105478d31"
+        "indicator--c16aae00-ebe8-4bfc-a867-86f9a2aa3dc6"
       ]
     },
     {
       "type": "indicator",
       "spec_version": "2.1",
-      "id": "indicator--97506270-acb1-41b6-80f8-42b639ad52b0",
-      "created": "2026-01-04T03:35:13Z",
-      "modified": "2026-01-04T03:35:13Z",
-      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "id": "indicator--75b67337-5d59-40c3-8842-8bb33228bfc2",
+      "created": "2026-01-12T12:05:39Z",
+      "modified": "2026-01-12T12:05:39Z",
+      "created_by_ref": "identity--b7a30cf2-772f-4d44-b70e-a2160959f919",
       "name": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
       "description": "NYC mayoral inauguration security measures ban Flipper Zero and Raspberry Pi devices.",
       "pattern_type": "stix",
@@ -89,10 +89,10 @@
     {
       "type": "report",
       "spec_version": "2.1",
-      "id": "report--9f3504d8-def2-4586-920c-b3810fd55a44",
-      "created": "2026-01-04T03:35:13Z",
-      "modified": "2026-01-04T03:35:13Z",
-      "created_by_ref": "identity--a0068489-0e26-422e-bde2-082be2a390fa",
+      "id": "report--a7a7eb0e-1fae-45a7-b82e-c841780d1dd2",
+      "created": "2026-01-12T12:05:39Z",
+      "modified": "2026-01-12T12:05:39Z",
+      "created_by_ref": "identity--b7a30cf2-772f-4d44-b70e-a2160959f919",
       "name": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
       "description": "The upcoming NYC mayoral inauguration has implemented security measures that include banning Flipper Zero and Raspberry Pi devices. These devices are known for their hacking capabilities and could pose a threat to the event's security. The decision to prohibit these devices aims to prevent any potential cyber threats or disruptions during the ceremony.",
       "published": "2025-12-31T22:52:44Z",
@@ -114,7 +114,7 @@
         }
       ],
       "object_refs": [
-        "indicator--97506270-acb1-41b6-80f8-42b639ad52b0"
+        "indicator--75b67337-5d59-40c3-8842-8bb33228bfc2"
       ]
     }
   ]

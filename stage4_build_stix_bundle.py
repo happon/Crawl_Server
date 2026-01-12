@@ -8,8 +8,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # ===== 設定 =====
-INPUT_JSON = BASE_DIR / "stage4_input_included.json"   # 前段の抽出結果
-OUTPUT_STIX = BASE_DIR / "stage4_stix_bundle.json"     # 生成されるSTIX Bundle
+INPUT_JSON = BASE_DIR / "stage4_input_included.json"     # 前段の抽出結果
+OUTPUT_STIX = BASE_DIR / "stage4_stix_bundle.json"       # 生成されるSTIX Bundle
+OUTPUT_MANIFEST = BASE_DIR / "stage4c_manifest.json"     # ★追加：manifest
 
 CREATOR_NAME = "Geopolitical Collector"
 CREATOR_CLASS = "organization"
@@ -29,7 +30,7 @@ def stix_id(stix_type: str) -> str:
     return f"{stix_type}--{uuid.uuid4()}"
 
 
-def parse_datetime_any(value) -> datetime | None:
+def parse_datetime_any(value):
     if value is None:
         return None
     v = str(value).strip()
@@ -53,7 +54,7 @@ def parse_datetime_any(value) -> datetime | None:
         return None
 
 
-def normalize_tags(tags_val) -> list[str]:
+def normalize_tags(tags_val):
     if tags_val is None:
         return []
     if isinstance(tags_val, list):
@@ -92,15 +93,16 @@ def safe_str(row: dict, key: str) -> str:
 
 # ===== メイン =====
 def main():
-    print(f"INPUT : {INPUT_JSON}")
-    print(f"OUTPUT: {OUTPUT_STIX}")
+    print(f"INPUT : {INPUT_JSON}", flush=True)
+    print(f"OUTPUT: {OUTPUT_STIX}", flush=True)
+    print(f"MANIF : {OUTPUT_MANIFEST}", flush=True)
 
     if not INPUT_JSON.exists():
         raise FileNotFoundError(f"入力ファイルが見つかりません: {INPUT_JSON}")
 
     data = json.loads(INPUT_JSON.read_text(encoding="utf-8"))
     rows = data.get("rows", [])
-    print(f"rows: {len(rows)}")
+    print(f"rows: {len(rows)}", flush=True)
 
     created_ts = now_utc()
 
@@ -117,7 +119,15 @@ def main():
 
     objects = [creator_identity]
 
-    for row in rows:
+    manifest = {
+        "generated_at": created_ts,
+        "input_file": str(INPUT_JSON.name),
+        "output_bundle": str(OUTPUT_STIX.name),
+        "count_rows": len(rows),
+        "items": [],
+    }
+
+    for idx, row in enumerate(rows, start=1):
         url = safe_str(row, "url")
         title = safe_str(row, "title")
         logic_title = safe_str(row, "logic_title") or title
@@ -179,6 +189,16 @@ def main():
         objects.append(indicator)
         objects.append(report)
 
+        manifest["items"].append({
+            "index": idx,
+            "title": logic_title or title,
+            "url": url,
+            "report_id": report_id,
+            "indicator_id": indicator_id,
+            "category_main": category_main,
+            "tags": tags,
+        })
+
     bundle = {
         "type": "bundle",
         "id": stix_id("bundle"),
@@ -186,14 +206,16 @@ def main():
     }
 
     OUTPUT_STIX.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"✅ STIX Bundle を生成しました: {OUTPUT_STIX}")
-    print(f"objects: {len(objects)}")
+    OUTPUT_MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(f"✅ STIX Bundle: {OUTPUT_STIX} (objects={len(objects)})", flush=True)
+    print(f"✅ Manifest  : {OUTPUT_MANIFEST} (items={len(manifest['items'])})", flush=True)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"❌ 失敗: {e}")
+        print(f"❌ 失敗: {e}", flush=True)
         import traceback
         traceback.print_exc()
