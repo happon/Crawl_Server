@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-01-04T03:28:34.062345+00:00",
+  "spreadsheet": "RSS_記事一覧",
+  "include_col": "include_flag",
+  "count": 2,
+  "rows": [
+    {
+      "published": "Thu, 01 Jan 2026 10:18:23 -0500",
+      "title": "New GlassWorm malware wave targets Macs with trojanized crypto wallets",
+      "url": "https://www.bleepingcomputer.com/news/security/new-glassworm-malware-wave-targets-macs-with-trojanized-crypto-wallets/",
+      "source": "BleepingComputer",
+      "include_flag": "TRUE",
+      "summary": "New wave of GlassWorm malware specifically targeting Mac users with trojanized crypto wallets.",
+      "summary_detail": "A new variant of the GlassWorm malware has been discovered, focusing on infecting Mac computers and stealing cryptocurrency by trojanizing crypto wallets. Mac users are advised to be cautious and ensure their systems are protected against this threat.",
+      "logic_title": "GlassWorm malware targets Macs with trojanized crypto wallets",
+      "category_main": "Cyber_Threat",
+      "tags": "[\"GlassWorm\", \"malware\", \"Macs\", \"trojanized\", \"crypto wallets\"]",
+      "_row_num": 4
+    },
+    {
+      "published": "Wed, 31 Dec 2025 17:52:44 -0500",
+      "title": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
+      "url": "https://www.bleepingcomputer.com/news/security/nyc-mayoral-inauguration-bans-flipper-zero-raspberry-pi-devices/",
+      "source": "BleepingComputer",
+      "include_flag": "TRUE",
+      "summary": "NYC mayoral inauguration security measures ban Flipper Zero and Raspberry Pi devices.",
+      "summary_detail": "The upcoming NYC mayoral inauguration has implemented security measures that include banning Flipper Zero and Raspberry Pi devices. These devices are known for their hacking capabilities and could pose a threat to the event's security. The decision to prohibit these devices aims to prevent any potential cyber threats or disruptions during the ceremony.",
+      "logic_title": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
+      "category_main": "Cyber_Threat",
+      "tags": "[\"NYC\", \"mayoral inauguration\", \"Flipper Zero\", \"Raspberry Pi\", \"security\"]",
+      "_row_num": 5
+    }
+  ]
+}

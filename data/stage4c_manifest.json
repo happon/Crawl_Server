@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-01-12T12:05:39Z",
+  "input_file": "stage4_input_included.json",
+  "output_bundle": "stage4_stix_bundle.json",
+  "count_rows": 2,
+  "items": [
+    {
+      "index": 1,
+      "title": "GlassWorm malware targets Macs with trojanized crypto wallets",
+      "url": "https://www.bleepingcomputer.com/news/security/new-glassworm-malware-wave-targets-macs-with-trojanized-crypto-wallets/",
+      "report_id": "report--105f50c2-16c4-4436-b4c1-1f4efcb40e22",
+      "indicator_id": "indicator--c16aae00-ebe8-4bfc-a867-86f9a2aa3dc6",
+      "category_main": "Cyber_Threat",
+      "tags": [
+        "GlassWorm",
+        "malware",
+        "Macs",
+        "trojanized",
+        "crypto wallets"
+      ]
+    },
+    {
+      "index": 2,
+      "title": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
+      "url": "https://www.bleepingcomputer.com/news/security/nyc-mayoral-inauguration-bans-flipper-zero-raspberry-pi-devices/",
+      "report_id": "report--a7a7eb0e-1fae-45a7-b82e-c841780d1dd2",
+      "indicator_id": "indicator--75b67337-5d59-40c3-8842-8bb33228bfc2",
+      "category_main": "Cyber_Threat",
+      "tags": [
+        "NYC",
+        "mayoral inauguration",
+        "Flipper Zero",
+        "Raspberry Pi",
+        "security"
+      ]
+    }
+  ]
+}
