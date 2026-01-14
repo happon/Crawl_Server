@@ -1,114 +1,213 @@
-import os
-import re
+from __future__ import annotations
+
+import argparse
 import json
-import gspread
+import os
 import time
+from pathlib import Path
+from typing import List, Optional, TypedDict
+
+import gspread
+from dotenv import load_dotenv
 from google import genai
 from google.genai.types import GenerateContentConfig
 from google.oauth2.service_account import Credentials
-from dotenv import load_dotenv
 
-# ----------------- 設定 -----------------
-load_dotenv()
-SPREADSHEET_NAME = "RSS_記事一覧"
-CREDENTIALS_FILE = "credentials.json"
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# 新しいSDKのクライアント初期化
-client = genai.Client(api_key=GOOGLE_API_KEY)
-MODEL_NAME = "gemini-3-pro-preview" # もしくは "gemini-1.5-pro" など利用可能なモデル
-PROMPT_FILE = "prompt.md"           # 同じディレクトリに置く
-
-# ----------------- prompt.md 読み込み（起動時に1回だけ） -----------------
-if not os.path.exists(PROMPT_FILE):
-    raise FileNotFoundError(f"{PROMPT_FILE} が見つかりません。stage3_gemini_classify.py と同じフォルダに置いてください。")
-
-with open(PROMPT_FILE, "r", encoding="utf-8") as f:
-    prompt_template = f.read()
-
-# ----------------- Google Sheets接続 -----------------
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+# ===== Sheetsの列（確定）=====
+HEADERS = [
+    "published",
+    "source",
+    "author",
+    "title",
+    "url",
+    "logic_title",
+    "summary",
+    "summary_detail",
+    "category_main",
+    "tags",
+    "include_flag",
 ]
-credentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
-gc = gspread.authorize(credentials)
-ws = gc.open(SPREADSHEET_NAME).sheet1
 
-# ----------------- ヘッダー列の特定（高速化のためループ外で実行） -----------------
-# 1行目のヘッダーを取得し、列名と列番号の対応辞書を作成
-headers = ws.row_values(1)
-col_map = {name: i + 1 for i, name in enumerate(headers)}
+# ===== Gemini 出力スキーマ（Stage3が埋める列）=====
+class Stage3Out(TypedDict):
+    logic_title: str
+    summary: str
+    summary_detail: str
+    category_main: str
+    tags: List[str]  # モデル側は配列で返す想定（Sheetsには文字列で格納）
 
-# 必要な列が存在するか確認
-required_cols = ["title", "url", "logic_title", "category_main", "tags", "summary", "summary_detail"]
-for col in required_cols:
-    if col not in col_map:
-        raise ValueError(f"スプレッドシートに列 '{col}' が見つかりません。")
 
-# ----------------- 対象データ取得 -----------------
-rows = ws.get_all_records()
+def project_root() -> Path:
+    # .../src/stage3/gemini_summarize.py -> 3階層上がプロジェクトルート想定
+    return Path(__file__).resolve().parents[3]
 
-print(f"全 {len(rows)} 件のデータを読み込みました。処理を開始します...")
 
-for i, row in enumerate(rows):
-    row_num = i + 2 # スプレッドシート上の行番号（ヘッダーが1行目なので+2）
+def get_ws(spreadsheet_name: str, worksheet_name: str, credentials_path: Optional[str]):
+    root = project_root()
+    cred_path = Path(credentials_path) if credentials_path else (root / "credentials.json")
+    if not cred_path.exists():
+        raise FileNotFoundError(f"credentials.json not found: {cred_path}")
 
-    # 必須データの欠損チェック
-    title = str(row.get("title", "")).strip()
-    url = str(row.get("url", "")).strip()
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    credentials = Credentials.from_service_account_file(str(cred_path), scopes=scopes)
+    gc = gspread.authorize(credentials)
 
-    if not title or not url:
-        print(f"⏭️ Row {row_num}: タイトルまたはURLがないためスキップ")
-        continue
-
-    # すでに処理済みの行はスキップ
-    # (値が空文字でない場合は処理済みとみなす)
-    if str(row.get("summary", "")).strip() and str(row.get("category_main", "")).strip():
-        # print(f"⏭️ Row {row_num}: 処理済みのためスキップ")
-        continue
-
-    print(f"🚀 Processing Row {row_num}: {title[:30]}...")
-
-    prompt = (
-        prompt_template
-        .replace("{{title}}", title)
-        .replace("{{url}}", url)
-    )
-
+    sh = gc.open(spreadsheet_name)
     try:
-        # API呼び出し
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=GenerateContentConfig(
-                response_mime_type="application/json", 
-                tools=[{"url_context": {}}] # URL読み込みツール
-            ),
+        ws = sh.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=worksheet_name, rows=1000, cols=30)
+    return ws
+
+
+def ensure_header_row(ws):
+    first_row = ws.row_values(1)
+    if not first_row:
+        ws.append_row(HEADERS, value_input_option="RAW")
+        return
+
+    # 先頭HEADERS分だけ一致していることを要求（列が増える運用は許容）
+    got = [c.strip() for c in first_row[: len(HEADERS)]]
+    if got != HEADERS:
+        raise ValueError(
+            "Header mismatch. Please align the sheet header to:\n"
+            + "\t" + "\t".join(HEADERS)
         )
 
-        content = response.text.strip()
-        # print(f"🔍 DEBUGレスポンス(Row {row_num}):\n", content[:100], "...") 
 
-        # JSONパース処理
-        clean_content = re.sub(r"^```json\s*|\s*```$", "", content)
-        parsed = json.loads(clean_content)
+def load_prompt(prompt_path: Optional[str]) -> str:
+    root = project_root()
+    p = Path(prompt_path) if prompt_path else (root / "prompts" / "stage3_prompt.md")
+    if not p.exists():
+        raise FileNotFoundError(f"prompt file not found: {p}")
+    return p.read_text(encoding="utf-8")
 
-        # スプレッドシート更新（事前に取得した列番号を使用）
-        # API制限回避のため、必要なら time.sleep(1) を入れる
-        ws.update_cell(row_num, col_map["logic_title"], parsed.get("logic_title", ""))
-        ws.update_cell(row_num, col_map["category_main"], parsed.get("category_main", ""))
-        ws.update_cell(row_num, col_map["tags"], json.dumps(parsed.get("tags", []), ensure_ascii=False))
-        ws.update_cell(row_num, col_map["summary"], parsed.get("summary", ""))
-        ws.update_cell(row_num, col_map["summary_detail"], parsed.get("summary_detail", ""))
 
-        print(f"✅ Row {row_num}: 更新完了")
-        
-        # 連続書き込みによるAPIエラー回避のため少し待機
-        time.sleep(1)
+def build_prompt(template: str, title: str, url: str) -> str:
+    return template.replace("{{title}}", title).replace("{{url}}", url)
 
-    except Exception as e:
-        print(f"⚠️ Row {row_num}: エラー発生 - {e}")
-        # 詳細なエラー情報を表示（デバッグ用）
-        import traceback
-        traceback.print_exc()
+
+def tags_to_cell(tags: List[str]) -> str:
+    # Sheets側は「カンマ区切り文字列」に統一（後段処理が楽）
+    cleaned = [t.strip() for t in (tags or []) if str(t).strip()]
+    return ", ".join(cleaned[:5])
+
+
+def update_row_cells(ws, row_num: int, col_map: dict, out: Stage3Out):
+    """
+    1行ぶんをまとめて更新（A1記法で横一括更新）
+    """
+    values = [[
+        out.get("logic_title", ""),
+        out.get("summary", ""),
+        out.get("summary_detail", ""),
+        out.get("category_main", ""),
+        tags_to_cell(out.get("tags", [])),
+    ]]
+
+    start_col = col_map["logic_title"]
+    end_col = col_map["tags"]
+    # 例：F2:J2 のようなレンジ
+    start_a1 = gspread.utils.rowcol_to_a1(row_num, start_col)
+    end_a1 = gspread.utils.rowcol_to_a1(row_num, end_col)
+    rng = f"{start_a1}:{end_a1}"
+
+    ws.update(rng, values, value_input_option="RAW")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Stage3: Summarize/classify from URL using Gemini and write back to Sheets.")
+    parser.add_argument("--sheet", default="RSS_記事一覧", help="Spreadsheet name")
+    parser.add_argument("--worksheet", default="Sheet1", help="Worksheet name")
+    parser.add_argument("--credentials", default=None, help="Path to credentials.json (optional)")
+    parser.add_argument("--prompt", default=None, help="Path to stage3 prompt markdown (optional)")
+    parser.add_argument("--model", default="gemini-3-pro-preview", help="Gemini model name")
+    parser.add_argument("--sleep", type=float, default=1.0, help="Sleep seconds between API calls")
+    parser.add_argument("--limit", type=int, default=0, help="Process only first N target rows (0=all)")
+    args = parser.parse_args()
+
+    load_dotenv()
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GOOGLE_API_KEY is missing in environment (.env).")
+
+    client = genai.Client(api_key=api_key)
+
+    ws = get_ws(args.sheet, args.worksheet, args.credentials)
+    ensure_header_row(ws)
+
+    headers = ws.row_values(1)
+    col_map = {name: i + 1 for i, name in enumerate(headers)}
+
+    required = ["title", "url", "logic_title", "summary", "summary_detail", "category_main", "tags", "include_flag"]
+    for c in required:
+        if c not in col_map:
+            raise ValueError(f"Missing column in sheet: {c}")
+
+    prompt_template = load_prompt(args.prompt)
+
+    rows = ws.get_all_records()
+    print(f"Loaded {len(rows)} rows.")
+
+    processed = 0
+    for i, row in enumerate(rows):
+        row_num = i + 2  # header is row1
+
+        title = str(row.get("title", "")).strip()
+        url = str(row.get("url", "")).strip()
+        if not title or not url:
+            continue
+
+        # 既にStage3済み（summaryが埋まっている）ならスキップ
+        if str(row.get("summary", "")).strip():
+            continue
+
+        # （任意）include_flagが既に入っている行は、人が触っている可能性があるのでスキップしたい場合
+        # if str(row.get("include_flag", "")).strip():
+        #     continue
+
+        prompt = build_prompt(prompt_template, title, url)
+
+        try:
+            resp = client.models.generate_content(
+                model=args.model,
+                contents=prompt,
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=Stage3Out,
+                    tools=[{"url_context": {}}],
+                ),
+            )
+
+            # SDKがparsedを返せる場合はそれを優先
+            out: Stage3Out
+            if getattr(resp, "parsed", None):
+                out = resp.parsed  # type: ignore[assignment]
+            else:
+                out = json.loads((resp.text or "").strip())
+
+            update_row_cells(ws, row_num, col_map, out)
+
+            processed += 1
+            print(f"Row {row_num}: updated")
+
+            if args.sleep > 0:
+                time.sleep(args.sleep)
+
+            if args.limit and processed >= args.limit:
+                break
+
+        except Exception as e:
+            print(f"Row {row_num}: ERROR - {e}")
+            # デバッグ用（必要なら）
+            # import traceback; traceback.print_exc()
+
+    print(f"Done. Updated rows: {processed}")
+
+
+if __name__ == "__main__":
+    main()
