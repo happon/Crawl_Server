@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from src.common.paths import repo_root
 
@@ -72,6 +73,8 @@ def make_test_report_bundle(
     publisher_line = f"publisher: {publisher_name or 'Unknown'}"
     note_content = "\n".join([author_line, publisher_line, "raw_text_ref: (not available)"]).strip()
 
+    # NOTE: note.created_by_ref は「取り込んだ側(collector)」にしたいが、
+    # test bundleなので publisher に寄せておく（必要なら後で collector identity を追加して差し替え可能）
     note = {
         "type": "note",
         "spec_version": "2.1",
@@ -79,7 +82,7 @@ def make_test_report_bundle(
         "created": created,
         "modified": created,
         "created_by_ref": publisher_id,
-        "content": note_content,
+        "content": note_content[:20000],
         "object_refs": [report_id],
     }
 
@@ -104,7 +107,7 @@ def make_test_report_bundle(
 class Step:
     num: int
     name: str
-    module: str  # ★ ファイルパスではなくモジュール名で管理する
+    module: str  # python -m で実行するモジュール名
 
 
 def run_cmd(cmd: List[str], *, cwd: Path, dry_run: bool) -> None:
@@ -114,15 +117,21 @@ def run_cmd(cmd: List[str], *, cwd: Path, dry_run: bool) -> None:
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
 
+def env_truthy(v: str) -> bool:
+    return (v or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def main() -> None:
     root = repo_root()
 
-    # ★ 01〜04は常に「python -m src.stage4....」で呼ぶ
+    # 01〜05 は常に「python -m src.stage4....」で呼ぶ
+    # 05 は rawから著者を検出できた場合だけ有効だが、実行してもノーオペになり得る前提でOK
     steps = [
         Step(1, "extract_included", "src.stage4.01_extract_included"),
         Step(2, "fetch_and_clean", "src.stage4.02_fetch_and_clean_article"),
         Step(3, "extract_stix", "src.stage4.03_extract_stix_entities"),
         Step(4, "build_bundle", "src.stage4.04_build_stix_bundle"),
+        Step(5, "enrich_authors", "src.stage4.05_enrich_authors"),
     ]
 
     parser = argparse.ArgumentParser(description="Crawl_Server orchestrator (Xubuntu/Linux).")
@@ -130,11 +139,18 @@ def main() -> None:
     parser.add_argument("--python", default=sys.executable, help="Python executable (default: current).")
 
     # Stage4 pipeline
-    parser.add_argument("--stage4", action="store_true", help="Run Stage4 pipeline (01->04).")
-    parser.add_argument("--from-step", type=int, default=1, choices=[1, 2, 3, 4], help="Start step number.")
-    parser.add_argument("--to-step", type=int, default=4, choices=[1, 2, 3, 4], help="End step number.")
+    parser.add_argument("--stage4", action="store_true", help="Run Stage4 pipeline (01->04 by default).")
+    parser.add_argument("--from-step", type=int, default=1, choices=[1, 2, 3, 4, 5], help="Start step number.")
+    parser.add_argument("--to-step", type=int, default=4, choices=[1, 2, 3, 4, 5], help="End step number.")
 
-    # Common paths (defaults)
+    # 05 の実行制御（デフォルトOFF。必要ならON）
+    parser.add_argument(
+        "--with-authors",
+        action="store_true",
+        help="Run Step 05 (author enrichment from raw text).",
+    )
+
+    # Common dirs (defaults)
     parser.add_argument("--data-dir", default=str(root / "data"), help="Data directory (default: <root>/data).")
     parser.add_argument("--prompts-dir", default=str(root / "prompts"), help="Prompts directory (default: <root>/prompts).")
 
@@ -171,13 +187,17 @@ def main() -> None:
         if start > end:
             raise SystemExit("--from-step must be <= --to-step")
 
+        # 05 を実行するかどうか（引数優先、次に env）
+        # 例: .env に STAGE4_WITH_AUTHORS=true を置いてもよい
+        with_authors = bool(args.with_authors) or env_truthy(os.getenv("STAGE4_WITH_AUTHORS", ""))
+
         for st in steps:
             if not (start <= st.num <= end):
                 continue
+            if st.num == 5 and not with_authors:
+                continue
 
-            # ★ ここが根本修正：ファイルパスではなく -m でモジュール実行
             cmd = [args.python, "-m", st.module]
-
             run_cmd(cmd, cwd=root, dry_run=args.dry_run)
 
         print("✅ Stage4 pipeline finished.")
@@ -188,6 +208,7 @@ def main() -> None:
     print("  python -m src.main --make-test-report")
     print("  python -m src.main --stage4")
     print("  python -m src.main --stage4 --from-step 2 --to-step 4")
+    print("  python -m src.main --stage4 --to-step 5 --with-authors")
 
 
 if __name__ == "__main__":
