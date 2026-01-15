@@ -1,42 +1,32 @@
 {
-  "generated_at": "2026-01-12T11:38:33Z",
+  "generated_at": "2026-01-15T08:02:18Z",
   "model": "gemini-3-pro-preview",
-  "count": 2,
+  "count": 1,
   "items": [
     {
+      "_row_num": 4,
       "title": "New GlassWorm malware wave targets Macs with trojanized crypto wallets",
       "url": "https://www.bleepingcomputer.com/news/security/new-glassworm-malware-wave-targets-macs-with-trojanized-crypto-wallets/",
       "retrieval_status": "ok",
       "language": "en",
-      "clean_text": "A fourth wave of the \"GlassWorm\" campaign is targeting macOS developers with malicious VSCode/OpenVSX extensions that deliver trojanized versions of crypto wallet applications.\n\nKoi Security researchers discovered a new GlassWorm campaign that targets macOS systems exclusively, a departure from the previous ones that focused only on Windows. Instead of the invisible Unicode seen in the first two waves, or compiled Rust binaries used in the third one, the most recent GlassWorm attacks use an AES-256-CBC–encrypted payload embedded in compiled JavaScript in the OpenVSX extensions. The malicious logic executes after a 15-minute delay, likely in an attempt to evade analysis in sandboxed environments.\n\nInstead of PowerShell, it now uses AppleScript, and instead of Registry modification, it uses LaunchAgents for persistence. The Solana blockchain-based command-and-control (C2) mechanism remains unchanged.\n\nApart from targeting over 50 browser crypto extensions, developer credentials (GitHub, NPM), and browser data, GlassWorm now also attempts to steal Keychain passwords. Additionally, it now features a new capability where it checks for hardware cryptocurrency wallet apps like Ledger Live and Trezor Suite on the host, and replaces them with a trojanized version.\n\nHowever, Koi Security notes that this mechanism is currently failing because the trojanized wallets are returning empty files. This could mean the attacker is still preparing the macOS wallet trojans, or the infrastructure is in transition. The capability is built and ready – it's just waiting for payloads to be uploaded. All other malicious functionality (credential theft, keychain access, data exfiltration, persistence) remains fully operational.\n\nThe download counters show more than 33,000 installs, but such figures are frequently manipulated by threat actors to make the files appear more trustworthy. Developers who have installed any of the malicious extensions are recommended to remove them immediately, reset their GitHub account passwords, revoke their NPM tokens, check their system for signs of infection, or reinstall it.",
       "removed_notes": [
         "ads",
         "navigation",
         "related-articles",
+        "subscription-box",
         "author-bio",
-        "general-background",
-        "image-captions"
+        "background-trimmed",
+        "footer-header-removed"
       ],
-      "focus_summary": "GlassWormマルウェアの第4波が、macOS開発者を標的として悪意あるVSCode/OpenVSX拡張機能を通じて配布され、Keychain情報の窃取やハードウェアウォレットアプリ（Ledger Live等）をトロイの木馬化されたバージョンへ置き換える攻撃を行っている。",
-      "_row_num": 4
-    },
-    {
-      "title": "NYC mayoral inauguration bans Flipper Zero, Raspberry Pi devices",
-      "url": "https://www.bleepingcomputer.com/news/security/nyc-mayoral-inauguration-bans-flipper-zero-raspberry-pi-devices/",
-      "retrieval_status": "ok",
-      "language": "en",
-      "clean_text": "New York City's 2026 mayoral inauguration of Zohran Mamdani has published a list of banned items for the event, specifically prohibiting the Flipper Zero and Raspberry Pi devices. As first reported by Adafruit, the ban list appears in the inauguration event's official FAQ, which lists items that may or may not be brought to the event.\n\nThe list of prohibited items also includes large bags, backpacks and duffle bags, weapons, fireworks or explosives, drones and other remote-controlled aerial devices, strollers, coolers, chairs, blankets, umbrellas, bicycles or scooters, alcoholic beverages, illegal substances, pets other than service animals, laser pens, and bats or batons.\n\nThe Flipper Zero is a handheld device for learning and testing wireless communication protocols, including RFID, NFC, infrared, Bluetooth, and radio signals. It is commonly used by security researchers, developers, and hobbyists for protocol analysis and penetration testing. A Raspberry Pi is a low-cost, general-purpose single-board computer capable of running standard Linux distributions and a wide range of software.\n\nUnlike most other items on the prohibited list, which are grouped into general categories, both devices are specifically named, rather than being restricted under a general computing or wireless device category. Devices such as the Flipper Zero have previously drawn scrutiny from governments due to concerns about their potential use in car theft and network breaches, though planned prohibitions have often been rolled back.\n\nHowever, the ban of these devices from the event has caused confusion, as laptops and mobile phones are not listed among the prohibited items, despite having equal or greater technical functionality.\n\n\"On the list of prohibited items published in advance, in addition to classic sources of danger such as firearms, drones, and glass bottles, two devices from the IT world are explicitly named: the Raspberry Pi and the Flipper Zero,\" security professional Stefan Klatt posted on X. \"How do you say that you have no idea without saying it?\"\n\nModern laptops can run penetration-testing Linux distributions such as Kali Linux, and smartphones can run advanced security toolsets like Kali NetHunter. Event organizers have not provided any details explaining why the Flipper Zero and Raspberry Pi were singled out.",
-      "removed_notes": [
-        "ads",
-        "navigation",
-        "related-articles",
-        "author-bio",
-        "comments",
-        "footer-header-removed",
-        "subscription-box"
-      ],
-      "focus_summary": "2026年のニューヨーク市長就任式において、主催者がFlipper ZeroやRaspberry Piを名指しで持ち込み禁止にしたが、より高機能なPCやスマホは禁止されておらず、基準が不明確であると専門家が指摘している。",
-      "_row_num": 5
+      "focus_summary": "The GlassWorm malware campaign has launched a fourth wave exclusively targeting macOS developers via malicious OpenVSX extensions that deploy trojanized cryptocurrency wallet applications, steal Keychain data, and utilize Solana blockchain-based C2.",
+      "raw_saved_path": "/home/devuser/Documents/Crawl_Server/data/raw_articles/row_000004_New GlassWorm malware wave targets Macs with trojanized crypto wallets_raw.txt",
+      "raw_sha256": "5382c3289e9037d8d2b1be937957cfbf4d018d60184147158c1030e168f84f93",
+      "raw_char_len": 3755,
+      "raw_truncated": false,
+      "clean_text": "A fourth wave of the \"GlassWorm\" campaign is targeting macOS developers with malicious VSCode/OpenVSX extensions that deliver trojanized versions of crypto wallet applications.\n\nKoi Security researchers discovered a new GlassWorm campaign that targets macOS systems exclusively, a departure from the previous ones that focused only on Windows.\n\nInstead of the invisible Unicode seen in the first two waves, or compiled Rust binaries used in the third one, the most recent GlassWorm attacks use an AES-256-CBC–encrypted payload embedded in compiled JavaScript in the OpenVSX extensions: studio-velte-distributor.pro-svelte-extension, cudra-production.vsce-prettier-pro, and Puccin-development.full-access-catppuccin-pro-extension.\n\nThe malicious logic executes after a 15-minute delay, likely in an attempt to evade analysis in sandboxed environments.\n\nInstead of PowerShell, it now uses AppleScript, and instead of Registry modification, it uses LaunchAgents for persistence. The Solana blockchain-based command-and-control (C2) mechanism remains unchanged, though, and researchers say that there is also infrastructure overlap.\n\nApart from targeting over 50 browser crypto extensions, developer credentials (GitHub, NPM), and browser data, GlassWorm now also attempts to steal Keychain passwords.\n\nAdditionally, it now features a new capability where it checks for hardware cryptocurrency wallet apps like Ledger Live and Trezor Suite on the host, and replaces them with a trojanized version. However, Koi Security notes that this mechanism is currently failing because the trojanized wallets are returning empty files. This suggests the attacker is still preparing the macOS wallet trojans or the infrastructure is in transition, though all other malicious functionality remains fully operational.\n\nDevelopers who have installed any of the three extensions are recommended to remove them immediately, reset their GitHub account passwords, revoke their NPM tokens, check their system for signs of infection, or reinstall it.",
+      "clean_sha256": "013ea238848b8d0da5e93e2ab794f5e1f5ec39287d1951c2f1dc17bfb16260d9",
+      "clean_char_len": 2025,
+      "clean_truncated": false
     }
   ]
 }

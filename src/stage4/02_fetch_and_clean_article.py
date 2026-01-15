@@ -10,9 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
-from dotenv import load_dotenv
 from google import genai
 from google.genai.types import GenerateContentConfig
+
+from src.common.paths import repo_root  # ★ rootは.env(=CRAWL_SERVER_ROOT)優先でここから取得
 
 
 # ====== 保存設定 ======
@@ -59,10 +60,6 @@ class Stage4AOutput(TypedDict):
     model: str
     count: int
     items: List[Stage4AItemOut]
-
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def now_utc_iso() -> str:
@@ -161,37 +158,54 @@ def build_prompt(prompt_base: str, title: str, url: str) -> str:
     return f"{prompt_base}\n\nTarget:\n- title: {title}\n- url: {url}\n"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Stage4A: fetch raw + generate clean; save raw as file; keep clean in JSON."
     )
-    parser.add_argument("--in", dest="in_path", default=None,
-                        help="Input JSON path (default: <root>/data/stage4_input_included.json)")
-    parser.add_argument("--out", dest="out_path", default=None,
-                        help="Output JSON path (default: <root>/data/stage4_articles_cleaned.json)")
-    parser.add_argument("--raw-dir", dest="raw_dir", default=None,
-                        help="Raw text dir (default: <root>/data/raw_articles)")
-    parser.add_argument("--prompt", dest="prompt_path", default=None,
-                        help="Prompt path (default: <root>/prompts/stage4a_clean.md)")
+    parser.add_argument(
+        "--in",
+        dest="in_path",
+        default=None,
+        help="Input JSON path (default: <root>/data/stage4_input_included.json)",
+    )
+    parser.add_argument(
+        "--out",
+        dest="out_path",
+        default=None,
+        help="Output JSON path (default: <root>/data/stage4_articles_cleaned.json)",
+    )
+    parser.add_argument(
+        "--raw-dir",
+        dest="raw_dir",
+        default=None,
+        help="Raw text dir (default: <root>/data/raw_articles)",
+    )
+    parser.add_argument(
+        "--prompt",
+        dest="prompt_path",
+        default=None,
+        help="Prompt path (default: <root>/prompts/stage4a_clean.md)",
+    )
     parser.add_argument("--model", default="gemini-3-pro-preview", help="Gemini model name")
     parser.add_argument("--sleep", type=float, default=1.0, help="Sleep seconds between calls")
     parser.add_argument("--limit", type=int, default=0, help="Process only first N rows (0=all)")
     parser.add_argument("--max-output-tokens", type=int, default=8192, help="Max output tokens")
     args = parser.parse_args()
 
-    root = project_root()
-    in_path = Path(args.in_path) if args.in_path else (root / "data" / "stage4_input_included.json")
-    out_path = Path(args.out_path) if args.out_path else (root / "data" / "stage4_articles_cleaned.json")
-    raw_dir = Path(args.raw_dir) if args.raw_dir else (root / "data" / "raw_articles")
-    prompt_path = Path(args.prompt_path) if args.prompt_path else (root / "prompts" / "stage4a_clean.md")
+    root = repo_root()
+
+    in_path = Path(args.in_path).expanduser().resolve() if args.in_path else (root / "data" / "stage4_input_included.json")
+    out_path = Path(args.out_path).expanduser().resolve() if args.out_path else (root / "data" / "stage4_articles_cleaned.json")
+    raw_dir = Path(args.raw_dir).expanduser().resolve() if args.raw_dir else (root / "data" / "raw_articles")
+    prompt_path = Path(args.prompt_path).expanduser().resolve() if args.prompt_path else (root / "prompts" / "stage4a_clean.md")
 
     if not in_path.exists():
         raise FileNotFoundError(f"Input JSON not found: {in_path}")
 
-    load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
+    # ★ dotenvは使わない：repo_root() が <root>/.env を読んでいる前提
+    api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
     if not api_key:
-        raise ValueError("GOOGLE_API_KEY is missing (.env).")
+        raise ValueError("GOOGLE_API_KEY is missing. Set it in <root>/.env or environment.")
 
     client = genai.Client(api_key=api_key)
     prompt_base = read_prompt(prompt_path)
@@ -233,7 +247,7 @@ def main():
             )
 
             parsed = getattr(resp, "parsed", None)
-            data: Optional[Dict[str, Any]] = dict(parsed) if parsed else safe_json_parse(resp.text or "")
+            data: Optional[Dict[str, Any]] = dict(parsed) if parsed else safe_json_parse(getattr(resp, "text", "") or "")
 
             if not data:
                 llm_out: Stage4ALLMOut = {
@@ -270,12 +284,14 @@ def main():
             if raw_text:
                 item_out.update(save_raw_text(raw_dir, int(row_num), title, raw_text))
             else:
-                item_out.update({
-                    "raw_saved_path": "",
-                    "raw_sha256": "",
-                    "raw_char_len": 0,
-                    "raw_truncated": False,
-                })
+                item_out.update(
+                    {
+                        "raw_saved_path": "",
+                        "raw_sha256": "",
+                        "raw_char_len": 0,
+                        "raw_truncated": False,
+                    }
+                )
 
             # cleanはJSONに保持（必要なら上限で切る）
             item_out.update(keep_clean_text(clean_text))

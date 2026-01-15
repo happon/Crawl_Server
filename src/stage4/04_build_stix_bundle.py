@@ -10,16 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.common.paths import repo_root
+
 
 CREATOR_NAME = "Geopolitical Collector"
 CREATOR_CLASS = "organization"
 DEFAULT_REPORT_TYPES = ["threat-report"]
 
 ALLOWED_INDICATOR_TYPES = {"ip", "domain", "hash"}
-
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def now_utc_iso() -> str:
@@ -45,26 +43,41 @@ def sha256_like(s: str) -> bool:
 # ----------------------------
 # Indicator (IOC only)
 # ----------------------------
-def is_ipv4(value: str) -> bool:
+def is_ip(value: str) -> bool:
+    """
+    IPv4 / IPv6 を許容
+    """
     try:
-        ipaddress.IPv4Address(value)
+        ipaddress.ip_address(value)
         return True
     except Exception:
         return False
 
 
 def is_domain(value: str) -> bool:
+    """
+    最低限のドメイン検証（過度に厳密にはしない）
+    - '.' が含まれる
+    - 全体長 <= 253
+    - 許容文字: a-z0-9.-（簡略）
+    - 先頭/末尾が '.' or '-' でない
+    - '..' を含まない
+    """
     v = value.strip().lower()
-    if len(v) > 253 or "." not in v:
+    if not v or len(v) > 253:
         return False
-    if v.startswith("-") or v.endswith("-"):
+    if "." not in v:
         return False
-    return bool(re.fullmatch(r"[a-z0-9.-]+", v))
+    if v.startswith((".", "-")) or v.endswith((".", "-")):
+        return False
+    if ".." in v:
+        return False
+    if not re.fullmatch(r"[a-z0-9.-]+", v):
+        return False
+    return True
 
 
-def build_indicator(
-    ind: Dict[str, Any], created: str, modified: str, created_by_ref: str
-) -> Optional[Dict[str, Any]]:
+def build_indicator(ind: Dict[str, Any], created: str, modified: str, created_by_ref: str) -> Optional[Dict[str, Any]]:
     itype = safe_str(ind.get("indicator_type")).lower()
     value = safe_str(ind.get("value"))
     context = safe_str(ind.get("context"))
@@ -78,9 +91,17 @@ def build_indicator(
     pattern: Optional[str] = None
 
     if itype == "ip":
-        if not is_ipv4(value):
+        if not is_ip(value):
             return None
-        pattern = f"[ipv4-addr:value = '{value}']"
+        # IPv4/IPv6両方許容
+        try:
+            ip_obj = ipaddress.ip_address(value)
+            if isinstance(ip_obj, ipaddress.IPv4Address):
+                pattern = f"[ipv4-addr:value = '{value}']"
+            else:
+                pattern = f"[ipv6-addr:value = '{value}']"
+        except Exception:
+            return None
 
     elif itype == "domain":
         if not is_domain(value):
@@ -188,13 +209,13 @@ def build_note_for_author_and_raw(
     raw_char_len: int,
     raw_truncated: bool,
 ) -> Dict[str, Any]:
-    # Overview > Notes に必ず出したい先頭行
+    # OverviewのNotesで最初に見せたい行
     author_line = "author: " + ("; ".join(authors) if authors else "Unknown")
-    publisher_line = f"publisher: {publisher_name or 'Unknown'}"
+    publisher_line = f"publisher: {publisher_name or 'Unknown Publisher'}"
 
     lines = [author_line, publisher_line]
 
-    # rawがあるときだけ、参照情報を追記（無い場合は出さない）
+    # rawの参照（無い場合も「not available」を明示）
     if raw_saved_path or (raw_sha256 and sha256_like(raw_sha256)):
         lines.extend(
             [
@@ -217,25 +238,17 @@ def build_note_for_author_and_raw(
         "id": new_stix_id("note"),
         "created": created,
         "modified": modified,
+        # Noteは「取り込みパイプラインが付与したメタ情報」なので creator(collector) を使用
         "created_by_ref": created_by_ref,
         "content": content[:20000],
         "object_refs": [report_id],
     }
 
 
-
-
 # ----------------------------
 # Author / Publisher handling
 # ----------------------------
 def normalize_author_key(name: str) -> str:
-    """
-    最小限の正規化（重複抑止用）
-    - lower
-    - trim
-    - collapse spaces
-    - remove light punctuation
-    """
     s = safe_str(name).lower()
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"[.,;:()\"'`’“”\-_/\\]+", "", s)
@@ -251,7 +264,6 @@ def parse_authors(author_value: Any) -> List[str]:
     if author_value is None:
         return []
 
-    # すでに配列で来る場合（将来対応）
     if isinstance(author_value, list):
         out: List[str] = []
         seen = set()
@@ -282,26 +294,27 @@ def parse_authors(author_value: Any) -> List[str]:
             continue
         seen2.add(p)
         out2.append(p)
-
     return out2
 
 
-
-def make_publisher_identity(name: str, created: str, modified: str, created_by_ref: str) -> Dict[str, Any]:
+def make_publisher_identity(name: str, created: str, modified: str) -> Dict[str, Any]:
+    """
+    推奨修正:
+    - publisher identity は “取り込み側が作った” という印象を避けるため created_by_ref を付けない
+      （必要なら戻せる）
+    """
     return {
         "type": "identity",
         "spec_version": "2.1",
         "id": new_stix_id("identity"),
         "created": created,
         "modified": modified,
-        "created_by_ref": created_by_ref,
         "name": name[:256],
         "identity_class": "organization",
     }
 
 
 def make_author_identity(name: str, created: str, modified: str, created_by_ref: str) -> Dict[str, Any]:
-    # 実在人物と断定しないための説明を付与
     desc = (
         "Author name as listed in the source article. "
         "May represent a pseudonym/handle/persona; not asserted as a verified real-world individual at ingestion time."
@@ -341,16 +354,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Stage4C: build STIX 2.1 Bundle from extracted entities + cleaned info.")
     parser.add_argument("--extracted", default=None, help="default: <root>/data/stage4b_extracted_stix.json")
     parser.add_argument("--cleaned", default=None, help="default: <root>/data/stage4_articles_cleaned.json")
+    parser.add_argument("--included", default=None, help="optional: <root>/data/stage4_input_included.json (for source/author補完)")
     parser.add_argument("--out-bundle", default=None, help="default: <root>/data/stage4_stix_bundle.json")
     parser.add_argument("--out-manifest", default=None, help="default: <root>/data/stage4c_manifest.json")
     args = parser.parse_args()
 
-    root = project_root()
+    root = repo_root()
 
-    input_extracted = Path(args.extracted) if args.extracted else (root / "data" / "stage4b_extracted_stix.json")
-    input_cleaned = Path(args.cleaned) if args.cleaned else (root / "data" / "stage4_articles_cleaned.json")
-    output_bundle = Path(args.out_bundle) if args.out_bundle else (root / "data" / "stage4_stix_bundle.json")
-    output_manifest = Path(args.out_manifest) if args.out_manifest else (root / "data" / "stage4c_manifest.json")
+    input_extracted = Path(args.extracted).expanduser().resolve() if args.extracted else (root / "data" / "stage4b_extracted_stix.json")
+    input_cleaned = Path(args.cleaned).expanduser().resolve() if args.cleaned else (root / "data" / "stage4_articles_cleaned.json")
+    input_included = Path(args.included).expanduser().resolve() if args.included else (root / "data" / "stage4_input_included.json")
+    output_bundle = Path(args.out_bundle).expanduser().resolve() if args.out_bundle else (root / "data" / "stage4_stix_bundle.json")
+    output_manifest = Path(args.out_manifest).expanduser().resolve() if args.out_manifest else (root / "data" / "stage4c_manifest.json")
 
     if not input_extracted.exists():
         raise FileNotFoundError(f"missing input: {input_extracted}")
@@ -360,6 +375,7 @@ def main() -> None:
     if not isinstance(items, list):
         raise ValueError("stage4b_extracted_stix.json: items must be a list")
 
+    # cleaned: url -> item
     cleaned_by_url: Dict[str, Dict[str, Any]] = {}
     if input_cleaned.exists():
         cleaned = load_json(input_cleaned)
@@ -368,10 +384,25 @@ def main() -> None:
             if u:
                 cleaned_by_url[u] = it
 
+    # included: url/_row_num -> item（source/author補完用）
+    included_by_url: Dict[str, Dict[str, Any]] = {}
+    included_by_row: Dict[int, Dict[str, Any]] = {}
+    if input_included.exists():
+        inc = load_json(input_included)
+        rows = inc.get("rows", [])
+        if isinstance(rows, list):
+            for r in rows:
+                u = safe_str(r.get("url"))
+                rn = r.get("_row_num")
+                if u:
+                    included_by_url[u] = r
+                if isinstance(rn, int):
+                    included_by_row[rn] = r
+
     created = now_utc_iso()
     modified = created
 
-    # “生成者”は全オブジェクトの created_by_ref に使う（報告書のauthor表現とは別）
+    # “生成者”（取り込みパイプライン）は全オブジェクトの created_by_ref に使う（ReportのAuthor表現とは別）
     creator_identity_id = new_stix_id("identity")
     creator_identity: Dict[str, Any] = {
         "type": "identity",
@@ -390,6 +421,7 @@ def main() -> None:
         "generated_at": created,
         "input_extracted": str(input_extracted),
         "input_cleaned": str(input_cleaned) if input_cleaned.exists() else None,
+        "input_included": str(input_included) if input_included.exists() else None,
         "reports": [],
         "skipped": [],
     }
@@ -413,12 +445,10 @@ def main() -> None:
         return obj["id"]
 
     def get_or_create_publisher_id(publisher_name: str) -> str:
-        name = safe_str(publisher_name)
-        if not name:
-            name = "Unknown Publisher"
+        name = safe_str(publisher_name) or "Unknown Publisher"
         if name in registry.publisher_ids:
             return registry.publisher_ids[name]
-        pub = make_publisher_identity(name, created, modified, creator_identity_id)
+        pub = make_publisher_identity(name, created, modified)
         objects.append(pub)
         registry.publisher_ids[name] = pub["id"]
         return pub["id"]
@@ -464,10 +494,20 @@ def main() -> None:
         raw_char_len = int(cleaned_item.get("raw_char_len", 0) or 0)
         raw_truncated = bool(cleaned_item.get("raw_truncated", False))
 
-        # ★出版社/著者（cleaned側にある想定）
-        publisher_name = safe_str(cleaned_item.get("source")) or safe_str(it.get("source")) or "Unknown Publisher"
-        authors = parse_authors(cleaned_item.get("author") or it.get("author"))
+        # --- source/author 補完（優先: included -> 次: cleaned -> 最後: extracted） ---
+        inc_item: Dict[str, Any] = {}
+        if url and url in included_by_url:
+            inc_item = included_by_url[url]
+        elif isinstance(row_num, int) and row_num in included_by_row:
+            inc_item = included_by_row[row_num]
 
+        publisher_name = (
+            safe_str(inc_item.get("source"))
+            or safe_str(cleaned_item.get("source"))
+            or safe_str(it.get("source"))
+            or "Unknown Publisher"
+        )
+        authors = parse_authors(inc_item.get("author") or cleaned_item.get("author") or it.get("author"))
 
         publisher_id = get_or_create_publisher_id(publisher_name)
 
@@ -559,7 +599,7 @@ def main() -> None:
         report_name = (title or focus_summary or "Untitled Report")[:256]
         report_description = focus_summary[:4096] if focus_summary else ""
 
-        # ★ReportのAuthor＝出版社（created_by_ref を出版社にする）
+        # ReportのAuthor＝出版社（created_by_ref を出版社にする）
         report: Dict[str, Any] = {
             "type": "report",
             "spec_version": "2.1",
@@ -583,43 +623,40 @@ def main() -> None:
 
         objects.append(report)
 
+        # ★ author用Noteを常に「1つ」作る（著者0でもOK / raw無くてもOK）
+        author_note = build_note_for_author_and_raw(
+            created=created,
+            modified=modified,
+            created_by_ref=creator_identity_id,
+            report_id=report["id"],
+            article_url=url,
+            publisher_name=publisher_name,
+            authors=authors,
+            raw_saved_path=raw_saved_path,
+            raw_sha256=raw_sha256,
+            raw_char_len=raw_char_len,
+            raw_truncated=raw_truncated,
+        )
+        objects.append(author_note)
+        report["object_refs"].append(author_note["id"])
+
         # ★著者（Individual）を作成し、Reportと created-by、著者と出版社を related-to で接続
         author_ids: List[str] = []
         for a in authors:
             aid = get_or_create_author_id(publisher_name, a)
             author_ids.append(aid)
 
-            # Report -> Author (created-by)
             rel_created_by = build_relationship(
                 "created-by", report["id"], aid, created, modified, creator_identity_id, confidence=60
             )
             objects.append(rel_created_by)
             report["object_refs"].append(rel_created_by["id"])
 
-            # Author -> Publisher (related-to)
             rel_related = build_relationship(
                 "related-to", aid, publisher_id, created, modified, creator_identity_id, confidence=40
             )
             objects.append(rel_related)
             report["object_refs"].append(rel_related["id"])
-
-            # ★ author用Noteを常に作る（rawがあれば参照情報も含める）
-            author_note = build_note_for_author_and_raw(
-                created=created,
-                modified=modified,
-                created_by_ref=creator_identity_id,
-                report_id=report["id"],
-                article_url=url,
-                publisher_name=publisher_name,
-                authors=authors,
-                raw_saved_path=raw_saved_path,
-                raw_sha256=raw_sha256,
-                raw_char_len=raw_char_len,
-                raw_truncated=raw_truncated,
-            )
-            objects.append(author_note)
-            report["object_refs"].append(author_note["id"])
-
 
         manifest["reports"].append(
             {

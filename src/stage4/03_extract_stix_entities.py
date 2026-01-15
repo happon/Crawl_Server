@@ -6,21 +6,25 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from dotenv import load_dotenv
 from google import genai
 from google.genai.types import GenerateContentConfig
+
+from src.common.paths import repo_root
 
 
 MODEL_NAME_DEFAULT = "gemini-3-pro-preview"
 SLEEP_SEC_DEFAULT = 1.0
 MAX_OUTPUT_TOKENS_DEFAULT = 4096
 
+# ★ 追加: LLMに渡すclean_text上限（長文ほど空応答/失敗が増える）
+MAX_CLEAN_CHARS_FOR_LLM = 30_000
 
-def project_root() -> Path:
-    # .../src/stage4/03_extract_stix_entities.py -> 3階層上がプロジェクトルート想定
-    return Path(__file__).resolve().parents[3]
+# ★ 追加: 空応答などのときのリトライ回数
+MAX_RETRIES = 3
+
+ALLOWED_INDICATOR_TYPES = {"ip", "domain", "hash"}
 
 
 def now_utc_iso() -> str:
@@ -70,12 +74,82 @@ def fill_prompt(template: str, title: str, url: str, clean_text: str) -> str:
     )
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Stage4B: extract STIX entities/relationships from clean_text using Gemini.")
+def _filter_indicators(indicators: Any) -> List[Dict[str, Any]]:
+    """
+    indicator_type を ip/domain/hash のみに絞る（最終防波堤）。
+    """
+    if not isinstance(indicators, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for ind in indicators:
+        if not isinstance(ind, dict):
+            continue
+        itype = str(ind.get("indicator_type") or "").strip().lower()
+        value = str(ind.get("value") or "").strip()
+        if not itype or not value:
+            continue
+        if itype not in ALLOWED_INDICATOR_TYPES:
+            continue
+        out.append(ind)
+    return out
+
+
+def _call_gemini_with_retry(
+    client: genai.Client,
+    *,
+    model: str,
+    prompt: str,
+    max_output_tokens: int,
+    base_sleep: float,
+) -> Dict[str, Any]:
+    """
+    empty_response / unparseable_json が出たときだけリトライ。
+    """
+    last_err: str = ""
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        resp = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=GenerateContentConfig(
+                response_mime_type="application/json",
+                max_output_tokens=max_output_tokens,
+            ),
+        )
+
+        txt = (getattr(resp, "text", "") or "").strip()
+        if not txt:
+            last_err = "empty_response"
+        else:
+            try:
+                return safe_json_loads(txt)
+            except Exception as e:
+                last_err = str(e)
+
+        if attempt < MAX_RETRIES:
+            sleep_sec = base_sleep * (2 ** (attempt - 1))
+            print(f"⚠️ retry {attempt}/{MAX_RETRIES} due to {last_err}; sleep {sleep_sec:.1f}s")
+            time.sleep(sleep_sec)
+
+    raise ValueError(last_err or "llm_call_failed")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Stage4B: extract STIX entities/relationships from clean_text using Gemini."
+    )
     parser.add_argument("--model", default=MODEL_NAME_DEFAULT)
     parser.add_argument("--sleep", type=float, default=SLEEP_SEC_DEFAULT)
     parser.add_argument("--max-output-tokens", type=int, default=MAX_OUTPUT_TOKENS_DEFAULT)
     parser.add_argument("--limit", type=int, default=0, help="process only first N ok-items (0=all)")
+
+    # ★ 追加: clean_text投入上限をコマンドでも調整可能に
+    parser.add_argument(
+        "--max-clean-chars",
+        type=int,
+        default=MAX_CLEAN_CHARS_FOR_LLM,
+        help="Max chars of clean_text passed to LLM (default: 30000).",
+    )
 
     parser.add_argument(
         "--in",
@@ -98,15 +172,14 @@ def main():
 
     args = parser.parse_args()
 
-    root = project_root()
-    in_path = Path(args.in_path) if args.in_path else (root / "data" / "stage4_articles_cleaned.json")
-    out_path = Path(args.out_path) if args.out_path else (root / "data" / "stage4b_extracted_stix.json")
-    prompt_path = Path(args.prompt_path) if args.prompt_path else (root / "prompts" / "stage4b_extract.md")
+    root = repo_root()
+    in_path = Path(args.in_path).expanduser().resolve() if args.in_path else (root / "data" / "stage4_articles_cleaned.json")
+    out_path = Path(args.out_path).expanduser().resolve() if args.out_path else (root / "data" / "stage4b_extracted_stix.json")
+    prompt_path = Path(args.prompt_path).expanduser().resolve() if args.prompt_path else (root / "prompts" / "stage4b_extract.md")
 
-    load_dotenv()
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = (os.getenv("GOOGLE_API_KEY") or "").strip()
     if not api_key:
-        raise ValueError("GOOGLE_API_KEY is missing (.env).")
+        raise ValueError("GOOGLE_API_KEY is missing. Set it in <root>/.env or environment.")
 
     client = genai.Client(api_key=api_key)
 
@@ -136,32 +209,53 @@ def main():
         clean_text = str(item.get("clean_text", "")).strip()
 
         if status != "ok" or not clean_text:
-            out["items"].append({
-                "_row_num": row_num,
-                "title": title,
-                "url": url,
-                "retrieval_status": status,
-                "extraction_status": "skipped",
-                "objects": [],
-                "indicators": [],
-                "relationships": [],
-                "notes": "skipped: no clean_text or retrieval_status not ok",
-            })
+            out["items"].append(
+                {
+                    "_row_num": row_num,
+                    "title": title,
+                    "url": url,
+                    "retrieval_status": status,
+                    "extraction_status": "skipped",
+                    "objects": [],
+                    "indicators": [],
+                    "relationships": [],
+                    "notes": "skipped: no clean_text or retrieval_status not ok",
+                }
+            )
             continue
 
-        prompt = fill_prompt(prompt_tmpl, title=title, url=url, clean_text=clean_text)
+        # ★ 長文は切ってから投入
+        truncated = False
+        clean_for_llm = clean_text
+        if len(clean_for_llm) > int(args.max_clean_chars):
+            clean_for_llm = clean_for_llm[: int(args.max_clean_chars)]
+            truncated = True
+
+        prompt = fill_prompt(prompt_tmpl, title=title, url=url, clean_text=clean_for_llm)
 
         try:
-            resp = client.models.generate_content(
+            parsed = _call_gemini_with_retry(
+                client,
                 model=args.model,
-                contents=prompt,
-                config=GenerateContentConfig(
-                    response_mime_type="application/json",
-                    max_output_tokens=args.max_output_tokens,
-                ),
+                prompt=prompt,
+                max_output_tokens=args.max_output_tokens,
+                base_sleep=max(args.sleep, 0.2),
             )
 
-            parsed = safe_json_loads(resp.text or "")
+            # 互換のため最低限のデフォルト
+            parsed.setdefault("extraction_status", "ok")
+            parsed.setdefault("objects", [])
+            parsed.setdefault("indicators", [])
+            parsed.setdefault("relationships", [])
+            parsed.setdefault("notes", "")
+
+            # ★ indicatorを最終的に絞る
+            parsed["indicators"] = _filter_indicators(parsed.get("indicators"))
+
+            # ★ notesにトリム情報を付与（原因追跡用）
+            if truncated:
+                extra = f"[clean_text_truncated_to={args.max_clean_chars}]"
+                parsed["notes"] = (str(parsed.get("notes") or "") + " " + extra).strip()
 
             out_item = {
                 "_row_num": row_num,
@@ -170,13 +264,6 @@ def main():
                 "retrieval_status": status,
                 **parsed,
             }
-
-            # 互換のため最低限のデフォルト
-            out_item.setdefault("extraction_status", "ok")
-            out_item.setdefault("objects", [])
-            out_item.setdefault("indicators", [])
-            out_item.setdefault("relationships", [])
-            out_item.setdefault("notes", "")
 
             out["items"].append(out_item)
             out["count_processed"] += 1
@@ -188,17 +275,19 @@ def main():
 
         except Exception as e:
             print(f"⚠️ Stage4B fail: row={row_num} title={title[:40]} err={e}")
-            out["items"].append({
-                "_row_num": row_num,
-                "title": title,
-                "url": url,
-                "retrieval_status": status,
-                "extraction_status": "error",
-                "objects": [],
-                "indicators": [],
-                "relationships": [],
-                "notes": f"exception: {e}",
-            })
+            out["items"].append(
+                {
+                    "_row_num": row_num,
+                    "title": title,
+                    "url": url,
+                    "retrieval_status": status,
+                    "extraction_status": "error",
+                    "objects": [],
+                    "indicators": [],
+                    "relationships": [],
+                    "notes": f"exception: {e}",
+                }
+            )
 
         if args.sleep > 0:
             time.sleep(args.sleep)

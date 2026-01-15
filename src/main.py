@@ -9,15 +9,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 
-
-# -----------------------------
-# Path helpers
-# -----------------------------
-def repo_root() -> Path:
-    # src/main.py -> repo root is parent of src
-    return Path(__file__).resolve().parents[1]
+from src.common.paths import repo_root
 
 
 def now_utc_iso() -> str:
@@ -44,13 +38,6 @@ def make_test_report_bundle(
     article_url: str,
     clean_text: str,
 ) -> Path:
-    """
-    OpenCTIにインポート可能な最小のSTIX2.1 bundle:
-    - publisher: identity (organization)
-    - report: created_by_ref = publisher
-    - note: Overviewに author: ... を表示する想定
-    - (optional) x_opencti_content に clean_text を入れる（OpenCTI拡張を想定）
-    """
     created = now_utc_iso()
 
     publisher_id = stix_id("identity")
@@ -78,11 +65,9 @@ def make_test_report_bundle(
         "report_types": ["threat-report"],
         "external_references": [{"source_name": "source", "url": article_url}] if article_url else [],
         "object_refs": [],
-        # OpenCTI向け: clean_text をReport側に保持したい場合（あなたの方針）
         "x_opencti_content": clean_text,
     }
 
-    # Note: Overview Notesの先頭行に author: ... を出す
     author_line = "author: " + ("; ".join([a for a in authors if a.strip()]) if authors else "Unknown")
     publisher_line = f"publisher: {publisher_name or 'Unknown'}"
     note_content = "\n".join([author_line, publisher_line, "raw_text_ref: (not available)"]).strip()
@@ -98,7 +83,6 @@ def make_test_report_bundle(
         "object_refs": [report_id],
     }
 
-    # ReportがNoteも辿れるように参照（OpenCTIで見通しが良い）
     report["object_refs"].append(note["id"])
 
     bundle = {
@@ -120,7 +104,7 @@ def make_test_report_bundle(
 class Step:
     num: int
     name: str
-    rel_script: Path
+    module: str  # ★ ファイルパスではなくモジュール名で管理する
 
 
 def run_cmd(cmd: List[str], *, cwd: Path, dry_run: bool) -> None:
@@ -133,11 +117,12 @@ def run_cmd(cmd: List[str], *, cwd: Path, dry_run: bool) -> None:
 def main() -> None:
     root = repo_root()
 
+    # ★ 01〜04は常に「python -m src.stage4....」で呼ぶ
     steps = [
-        Step(1, "extract_included", root / "src" / "stage4" / "01_extract_included.py"),
-        Step(2, "fetch_and_clean", root / "src" / "stage4" / "02_fetch_and_clean_article.py"),
-        Step(3, "extract_stix", root / "src" / "stage4" / "03_extract_stix_entities.py"),
-        Step(4, "build_bundle", root / "src" / "stage4" / "04_build_stix_bundle.py"),
+        Step(1, "extract_included", "src.stage4.01_extract_included"),
+        Step(2, "fetch_and_clean", "src.stage4.02_fetch_and_clean_article"),
+        Step(3, "extract_stix", "src.stage4.03_extract_stix_entities"),
+        Step(4, "build_bundle", "src.stage4.04_build_stix_bundle"),
     ]
 
     parser = argparse.ArgumentParser(description="Crawl_Server orchestrator (Xubuntu/Linux).")
@@ -149,7 +134,7 @@ def main() -> None:
     parser.add_argument("--from-step", type=int, default=1, choices=[1, 2, 3, 4], help="Start step number.")
     parser.add_argument("--to-step", type=int, default=4, choices=[1, 2, 3, 4], help="End step number.")
 
-    # Common paths (defaults are your current convention)
+    # Common paths (defaults)
     parser.add_argument("--data-dir", default=str(root / "data"), help="Data directory (default: <root>/data).")
     parser.add_argument("--prompts-dir", default=str(root / "prompts"), help="Prompts directory (default: <root>/prompts).")
 
@@ -164,14 +149,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    data_dir = Path(args.data_dir)
-    prompts_dir = Path(args.prompts_dir)
-
     # 1) Test bundle generation
     if args.make_test_report:
         authors = [a.strip() for a in args.test_authors.split(";") if a.strip()]
         out = make_test_report_bundle(
-            out_path=Path(args.test_out),
+            out_path=Path(args.test_out).expanduser().resolve(),
             report_name=args.test_report_name,
             publisher_name=args.test_publisher,
             authors=authors,
@@ -179,7 +161,6 @@ def main() -> None:
             clean_text=args.test_clean,
         )
         print(f"✅ wrote test bundle: {out}")
-        # make-testだけで終わる運用もあるので、stage4指定が無ければ終了
         if not args.stage4:
             return
 
@@ -190,37 +171,18 @@ def main() -> None:
         if start > end:
             raise SystemExit("--from-step must be <= --to-step")
 
-        # Quick existence check
-        for st in steps:
-            if start <= st.num <= end and not st.rel_script.exists():
-                raise SystemExit(f"Missing script: {st.rel_script}")
-
-        # Build commands.
-        # それぞれのスクリプトはデフォルトパスで動く前提（あなたの構成に合わせる）
         for st in steps:
             if not (start <= st.num <= end):
                 continue
 
-            cmd = [args.python, str(st.rel_script)]
-
-            # 必要なら個別引数をここで追加可能（例: promptパス、limit等）
-            # Stage4A/4B promptがデフォルト以外の場合に備えて、prompts-dirを使う例:
-            if st.num == 2:
-                # 02_fetch_and_clean.py: prompt default <root>/prompts/stage4a_clean.md
-                # 変更したいならここで上書き可能:
-                # cmd += ["--prompt", str(prompts_dir / "stage4a_clean.md")]
-                pass
-            if st.num == 3:
-                # 03_extract_stix_entities.py: prompt default <root>/prompts/stage4b_extract.md
-                # cmd += ["--prompt", str(prompts_dir / "stage4b_extract.md")]
-                pass
+            # ★ ここが根本修正：ファイルパスではなく -m でモジュール実行
+            cmd = [args.python, "-m", st.module]
 
             run_cmd(cmd, cwd=root, dry_run=args.dry_run)
 
         print("✅ Stage4 pipeline finished.")
         return
 
-    # If nothing selected
     print("No action specified. Use --stage4 and/or --make-test-report.")
     print("Examples:")
     print("  python -m src.main --make-test-report")
