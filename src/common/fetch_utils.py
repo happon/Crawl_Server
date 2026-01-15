@@ -6,9 +6,11 @@ from bs4 import BeautifulSoup
 import undetected_chromedriver as uc
 import time
 
-headers = {
+HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
 }
+
+CLASS_HINTS = ("post-body", "article-body", "entry-content", "post-content")
 
 def fetch_article_uc_selenium(url, timeout=6):
     with SB(uc=True, test=True) as sb:
@@ -19,16 +21,11 @@ def fetch_article_uc_selenium(url, timeout=6):
 
 def extract_full_article_thn(url):
     html = fetch_article_uc_selenium(url)
-    soup = BeautifulSoup(html, "html.parser")
-    div = soup.find("div", class_="post-body")  # THN特有のクラス
-    if div:
-        return div.get_text(separator="\n\n", strip=True)
-    paragraphs = soup.find_all("p")
-    return "\n\n".join(p.get_text(strip=True) for p in paragraphs)
+    return parse_article_body(html)
 
 # HTML取得 (requests)
 def fetch_html(url):
-    res = requests.get(url, headers=headers)
+    res = requests.get(url, headers=HEADERS)
     res.raise_for_status()
     return res.text
 
@@ -42,11 +39,15 @@ def extract_full_article_rss(entry):
     return extract_full_article_html(entry.link)
 
 # BeautifulSoupで記事本文を抽出（HTML文字列を渡す）
-def parse_article_body(html):
+def _extract_text_from_elements(elements):
+    return "\n\n".join(element.get_text(strip=True) for element in elements)
+
+
+def parse_article_body(html, class_hints=CLASS_HINTS):
     soup = BeautifulSoup(html, "html.parser")
 
     # 優先順位で探す：post-body > article > entry-content など
-    for class_hint in ["post-body", "article-body", "entry-content", "post-content"]:
+    for class_hint in class_hints:
         div = soup.find("div", class_=class_hint)
         if div:
             return div.get_text(separator="\n\n", strip=True)
@@ -58,7 +59,7 @@ def parse_article_body(html):
 
     # 最後の最後の手段：すべての<p>
     paragraphs = soup.find_all("p")
-    return "\n\n".join(p.get_text(strip=True) for p in paragraphs)
+    return _extract_text_from_elements(paragraphs)
 
 # Seleniumでページを開いて全文を取得
 def extract_full_article_html(url):
@@ -75,8 +76,8 @@ def extract_full_article_html(url):
         html = driver.page_source
         return parse_article_body(html)
 
-    except Exception as e:
-        return f"[ERROR] Failed to extract article from {url}: {str(e)}"
+    except Exception as exc:
+        return f"[ERROR] Failed to extract article from {url}: {exc}"
 
     finally:
         driver.quit()
