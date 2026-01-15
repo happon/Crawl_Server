@@ -19,7 +19,6 @@ ALLOWED_INDICATOR_TYPES = {"ip", "domain", "hash"}
 
 
 def project_root() -> Path:
-    # .../src/stage4/04_build_stix_bundle.py -> 3階層上がプロジェクトルート想定
     return Path(__file__).resolve().parents[3]
 
 
@@ -43,6 +42,9 @@ def sha256_like(s: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{64}", s or ""))
 
 
+# ----------------------------
+# Indicator (IOC only)
+# ----------------------------
 def is_ipv4(value: str) -> bool:
     try:
         ipaddress.IPv4Address(value)
@@ -52,7 +54,6 @@ def is_ipv4(value: str) -> bool:
 
 
 def is_domain(value: str) -> bool:
-    # 厳密すぎると取りこぼすので、最低限の妥当性チェック
     v = value.strip().lower()
     if len(v) > 253 or "." not in v:
         return False
@@ -64,13 +65,6 @@ def is_domain(value: str) -> bool:
 def build_indicator(
     ind: Dict[str, Any], created: str, modified: str, created_by_ref: str
 ) -> Optional[Dict[str, Any]]:
-    """
-    IndicatorはIOCのみに限定する。
-    - ip: IPv4のみ
-    - domain: ドメイン名のみ
-    - hash: MD5/SHA1/SHA256のみ
-    それ以外は作成しない（Noneを返す）。
-    """
     itype = safe_str(ind.get("indicator_type")).lower()
     value = safe_str(ind.get("value"))
     context = safe_str(ind.get("context"))
@@ -126,6 +120,9 @@ def build_indicator(
     return out
 
 
+# ----------------------------
+# SDO creation
+# ----------------------------
 def stix_object_from_extracted(obj: Dict[str, Any], created: str, modified: str, created_by_ref: str) -> Dict[str, Any]:
     stix_type = safe_str(obj.get("stix_type"))
     name = safe_str(obj.get("name"))
@@ -147,22 +144,20 @@ def stix_object_from_extracted(obj: Dict[str, Any], created: str, modified: str,
         base["confidence"] = confidence
 
     if stix_type == "identity":
-        base["identity_class"] = "organization"
+        base.setdefault("identity_class", "organization")
 
     return base
 
 
 def build_relationship(
-    rel: Dict[str, Any],
+    relationship_type: str,
     source_ref: str,
     target_ref: str,
     created: str,
     modified: str,
     created_by_ref: str,
+    confidence: int = 0,
 ) -> Dict[str, Any]:
-    relationship_type = safe_str(rel.get("relationship_type") or "related-to")
-    confidence = int(rel.get("confidence", 0) or 0)
-
     out: Dict[str, Any] = {
         "type": "relationship",
         "spec_version": "2.1",
@@ -179,26 +174,41 @@ def build_relationship(
     return out
 
 
-def build_note_for_raw_ref(
+def build_note_for_author_and_raw(
     *,
     created: str,
     modified: str,
     created_by_ref: str,
     report_id: str,
     article_url: str,
+    publisher_name: str,
+    authors: List[str],
     raw_saved_path: str,
     raw_sha256: str,
     raw_char_len: int,
     raw_truncated: bool,
 ) -> Dict[str, Any]:
-    lines = [
-        "Raw text reference (external file):",
-        f"- article_url: {article_url}",
-        f"- raw_saved_path: {raw_saved_path}",
-        f"- raw_sha256: {raw_sha256}",
-        f"- raw_char_len: {raw_char_len}",
-        f"- raw_truncated: {raw_truncated}",
-    ]
+    # Overview > Notes に必ず出したい先頭行
+    author_line = "author: " + ("; ".join(authors) if authors else "Unknown")
+    publisher_line = f"publisher: {publisher_name or 'Unknown'}"
+
+    lines = [author_line, publisher_line]
+
+    # rawがあるときだけ、参照情報を追記（無い場合は出さない）
+    if raw_saved_path or (raw_sha256 and sha256_like(raw_sha256)):
+        lines.extend(
+            [
+                "raw_text_ref:",
+                f"- article_url: {article_url}",
+                f"- raw_saved_path: {raw_saved_path}",
+                f"- raw_sha256: {raw_sha256}",
+                f"- raw_char_len: {raw_char_len}",
+                f"- raw_truncated: {raw_truncated}",
+            ]
+        )
+    else:
+        lines.append("raw_text_ref: (not available)")
+
     content = "\n".join(lines).strip()
 
     return {
@@ -213,16 +223,118 @@ def build_note_for_raw_ref(
     }
 
 
+
+
+# ----------------------------
+# Author / Publisher handling
+# ----------------------------
+def normalize_author_key(name: str) -> str:
+    """
+    最小限の正規化（重複抑止用）
+    - lower
+    - trim
+    - collapse spaces
+    - remove light punctuation
+    """
+    s = safe_str(name).lower()
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"[.,;:()\"'`’“”\-_/\\]+", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def parse_authors(author_value: Any) -> List[str]:
+    """
+    authorが欠落/空/None/文字列/配列のどれでも安全にList[str]へ正規化する。
+    文字列の場合は一般的な区切り（, ; | and）に対応。
+    """
+    if author_value is None:
+        return []
+
+    # すでに配列で来る場合（将来対応）
+    if isinstance(author_value, list):
+        out: List[str] = []
+        seen = set()
+        for x in author_value:
+            s = safe_str(x)
+            if not s:
+                continue
+            if s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        return out
+
+    s = safe_str(author_value)
+    if not s:
+        return []
+
+    s = s.replace("|", ",").replace(";", ",")
+    s = re.sub(r"\s+and\s+", ",", s, flags=re.IGNORECASE)
+    parts = [p.strip() for p in s.split(",")]
+
+    out2: List[str] = []
+    seen2 = set()
+    for p in parts:
+        if not p:
+            continue
+        if p in seen2:
+            continue
+        seen2.add(p)
+        out2.append(p)
+
+    return out2
+
+
+
+def make_publisher_identity(name: str, created: str, modified: str, created_by_ref: str) -> Dict[str, Any]:
+    return {
+        "type": "identity",
+        "spec_version": "2.1",
+        "id": new_stix_id("identity"),
+        "created": created,
+        "modified": modified,
+        "created_by_ref": created_by_ref,
+        "name": name[:256],
+        "identity_class": "organization",
+    }
+
+
+def make_author_identity(name: str, created: str, modified: str, created_by_ref: str) -> Dict[str, Any]:
+    # 実在人物と断定しないための説明を付与
+    desc = (
+        "Author name as listed in the source article. "
+        "May represent a pseudonym/handle/persona; not asserted as a verified real-world individual at ingestion time."
+    )
+    return {
+        "type": "identity",
+        "spec_version": "2.1",
+        "id": new_stix_id("identity"),
+        "created": created,
+        "modified": modified,
+        "created_by_ref": created_by_ref,
+        "name": name[:256],
+        "identity_class": "individual",
+        "description": desc,
+    }
+
+
 @dataclass
 class GlobalRegistry:
     # (type,name) -> id
     sdo_ids: Dict[Tuple[str, str], str]
     # (indicator_type,value) -> id
     ind_ids: Dict[Tuple[str, str], str]
+    # publisher_name -> identity_id
+    publisher_ids: Dict[str, str]
+    # (publisher_name, normalized_author_key) -> identity_id
+    author_ids: Dict[Tuple[str, str], str]
 
     def __init__(self) -> None:
         self.sdo_ids = {}
         self.ind_ids = {}
+        self.publisher_ids = {}
+        self.author_ids = {}
 
 
 def main() -> None:
@@ -259,6 +371,7 @@ def main() -> None:
     created = now_utc_iso()
     modified = created
 
+    # “生成者”は全オブジェクトの created_by_ref に使う（報告書のauthor表現とは別）
     creator_identity_id = new_stix_id("identity")
     creator_identity: Dict[str, Any] = {
         "type": "identity",
@@ -299,6 +412,28 @@ def main() -> None:
         objects.append(obj)
         return obj["id"]
 
+    def get_or_create_publisher_id(publisher_name: str) -> str:
+        name = safe_str(publisher_name)
+        if not name:
+            name = "Unknown Publisher"
+        if name in registry.publisher_ids:
+            return registry.publisher_ids[name]
+        pub = make_publisher_identity(name, created, modified, creator_identity_id)
+        objects.append(pub)
+        registry.publisher_ids[name] = pub["id"]
+        return pub["id"]
+
+    def get_or_create_author_id(publisher_name: str, author_name: str) -> str:
+        pub_name = safe_str(publisher_name) or "Unknown Publisher"
+        key_norm = normalize_author_key(author_name)
+        key = (pub_name, key_norm)
+        if key in registry.author_ids:
+            return registry.author_ids[key]
+        auth = make_author_identity(author_name, created, modified, creator_identity_id)
+        objects.append(auth)
+        registry.author_ids[key] = auth["id"]
+        return auth["id"]
+
     for it in items:
         row_num = it.get("_row_num")
         title = safe_str(it.get("title"))
@@ -329,6 +464,13 @@ def main() -> None:
         raw_char_len = int(cleaned_item.get("raw_char_len", 0) or 0)
         raw_truncated = bool(cleaned_item.get("raw_truncated", False))
 
+        # ★出版社/著者（cleaned側にある想定）
+        publisher_name = safe_str(cleaned_item.get("source")) or safe_str(it.get("source")) or "Unknown Publisher"
+        authors = parse_authors(cleaned_item.get("author") or it.get("author"))
+
+
+        publisher_id = get_or_create_publisher_id(publisher_name)
+
         # --- SDO登録（global dedupe） ---
         id_map: Dict[Tuple[str, str], str] = {}
 
@@ -344,7 +486,7 @@ def main() -> None:
             sdo_id = get_or_create_sdo_id(st, nm, _mk)
             id_map[(st, nm)] = sdo_id
 
-        # --- Indicator登録（IOCのみ。作れないものは作らない） ---
+        # --- Indicator登録（IOCのみ） ---
         indicator_ids: List[str] = []
         skipped_indicators: List[Dict[str, Any]] = []
 
@@ -354,10 +496,7 @@ def main() -> None:
             if not itype or not value:
                 continue
 
-            def _mk2():
-                return build_indicator(ind, created, modified, creator_identity_id)
-
-            candidate = _mk2()
+            candidate = build_indicator(ind, created, modified, creator_identity_id)
             if candidate is None:
                 skipped_indicators.append(
                     {
@@ -371,7 +510,7 @@ def main() -> None:
             ind_id = get_or_create_indicator_id(itype, value, lambda: candidate)
             indicator_ids.append(ind_id)
 
-        # --- Relationship（同一記事内だけ生成。参照が無いものは作らない） ---
+        # --- Relationship（抽出結果に基づく） ---
         relationship_ids: List[str] = []
         seen_rel: set[Tuple[str, str, str]] = set()
 
@@ -394,7 +533,7 @@ def main() -> None:
                 continue
             seen_rel.add(rel_key)
 
-            rel_obj = build_relationship(rel, s_ref, t_ref, created, modified, creator_identity_id)
+            rel_obj = build_relationship(r_type, s_ref, t_ref, created, modified, creator_identity_id)
             objects.append(rel_obj)
             relationship_ids.append(rel_obj["id"])
 
@@ -420,13 +559,14 @@ def main() -> None:
         report_name = (title or focus_summary or "Untitled Report")[:256]
         report_description = focus_summary[:4096] if focus_summary else ""
 
+        # ★ReportのAuthor＝出版社（created_by_ref を出版社にする）
         report: Dict[str, Any] = {
             "type": "report",
             "spec_version": "2.1",
             "id": new_stix_id("report"),
             "created": created,
             "modified": modified,
-            "created_by_ref": creator_identity_id,
+            "created_by_ref": publisher_id,
             "name": report_name,
             "description": report_description,
             "published": created,
@@ -435,43 +575,66 @@ def main() -> None:
             "object_refs": object_refs,
         }
 
-        # OpenCTI運用：cleanはReport内に保持（標準外プロパティx_として格納）
+        # OpenCTI運用：cleanはReport内に保持（標準外プロパティx_）
         if clean_text:
             report["x_opencti_content"] = clean_text
         if clean_sha256 and sha256_like(clean_sha256):
             report["x_opencti_clean_sha256"] = clean_sha256
 
-        # manifestに「Indicatorでスキップしたもの」を残す（後で検証できる）
-        report_meta = {
-            "_row_num": row_num,
-            "title": title,
-            "url": url,
-            "report_id": report["id"],
-            "object_refs_count": len(report["object_refs"]),
-            "has_clean_text": bool(clean_text),
-            "has_raw_ref": bool(raw_saved_path or raw_sha256),
-            "skipped_indicators": skipped_indicators,
-        }
-
         objects.append(report)
 
-        # rawはNoteに“参照のみ”を残す
-        if raw_saved_path or (raw_sha256 and sha256_like(raw_sha256)):
-            note = build_note_for_raw_ref(
+        # ★著者（Individual）を作成し、Reportと created-by、著者と出版社を related-to で接続
+        author_ids: List[str] = []
+        for a in authors:
+            aid = get_or_create_author_id(publisher_name, a)
+            author_ids.append(aid)
+
+            # Report -> Author (created-by)
+            rel_created_by = build_relationship(
+                "created-by", report["id"], aid, created, modified, creator_identity_id, confidence=60
+            )
+            objects.append(rel_created_by)
+            report["object_refs"].append(rel_created_by["id"])
+
+            # Author -> Publisher (related-to)
+            rel_related = build_relationship(
+                "related-to", aid, publisher_id, created, modified, creator_identity_id, confidence=40
+            )
+            objects.append(rel_related)
+            report["object_refs"].append(rel_related["id"])
+
+            # ★ author用Noteを常に作る（rawがあれば参照情報も含める）
+            author_note = build_note_for_author_and_raw(
                 created=created,
                 modified=modified,
                 created_by_ref=creator_identity_id,
                 report_id=report["id"],
                 article_url=url,
+                publisher_name=publisher_name,
+                authors=authors,
                 raw_saved_path=raw_saved_path,
                 raw_sha256=raw_sha256,
                 raw_char_len=raw_char_len,
                 raw_truncated=raw_truncated,
             )
-            objects.append(note)
-            report["object_refs"].append(note["id"])
+            objects.append(author_note)
+            report["object_refs"].append(author_note["id"])
 
-        manifest["reports"].append(report_meta)
+
+        manifest["reports"].append(
+            {
+                "_row_num": row_num,
+                "title": title,
+                "url": url,
+                "report_id": report["id"],
+                "publisher": publisher_name,
+                "authors": authors,
+                "object_refs_count": len(report["object_refs"]),
+                "has_clean_text": bool(clean_text),
+                "has_raw_ref": bool(raw_saved_path or raw_sha256),
+                "skipped_indicators": skipped_indicators,
+            }
+        )
 
     bundle = {
         "type": "bundle",
